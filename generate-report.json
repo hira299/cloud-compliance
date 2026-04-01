@@ -1,0 +1,89 @@
+{
+  "name": "generate-report",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-report",
+        "responseMode": "lastNode",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -432,
+        0
+      ],
+      "id": "efa40f26-af4f-4d0c-917e-9d6b7248ffdd",
+      "name": "Webhook",
+      "webhookId": "4f34a131-2553-4183-9d46-1a84d21623d0"
+    },
+    {
+      "parameters": {
+        "operation": "rtf",
+        "binaryPropertyName": "=file",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        16,
+        0
+      ],
+      "id": "122f0851-26e2-4d7c-bd06-7a1349a1b68a",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "jsCode": "const reportText = $input.first().json.body.text;\n\n// Extract risk score from report\nconst scoreMatch = reportText.match(/risk score of (\\d+) out of 100/i) || \n                   reportText.match(/score of (\\d+)\\/100/i) ||\n                   reportText.match(/(\\d+) out of 100/i);\nconst score = scoreMatch ? scoreMatch[1] : 'N/A';\n\n// Color based on score\nlet scoreColor = '\\\\red233\\\\green69\\\\blue96';  // red - bad\nif (parseInt(score) >= 70) scoreColor = '\\\\red39\\\\green174\\\\blue96';  // green - good\nelse if (parseInt(score) >= 50) scoreColor = '\\\\red243\\\\green156\\\\blue18'; // orange - medium\n\n// Convert markdown to RTF formatting\nlet rtf = reportText\n  .replace(/\\*\\*(.+?)\\*\\*/g, '\\\\b $1\\\\b0 ')\n  .replace(/^### (.+)$/gm, '\\\\b\\\\fs28 $1\\\\b0\\\\fs24\\n')\n  .replace(/^## (.+)$/gm, '\\\\b\\\\fs32 $1\\\\b0\\\\fs24\\n')\n  .replace(/^\\s*[\\*\\+]\\s(.+)$/gm, '\\\\bullet  $1')\n  .replace(/^(\\d+)\\.\\s/gm, '$1. ')\n  .replace(/\\t/g, '    ');\n\nconst fullRtf = `{\\\\rtf1\\\\ansi\\\\deff0\n{\\\\fonttbl{\\\\f0\\\\froman\\\\fcharset0 Times New Roman;}{\\\\f1\\\\fswiss\\\\fcharset0 Arial;}}\n{\\\\colortbl;\\\\red26\\\\green26\\\\blue46;\\\\red233\\\\green69\\\\blue96;\\\\red44\\\\green62\\\\blue80;${scoreColor};}\n\\\\f1\\\\fs24\\\\cf3\n\n{\\\\f1\\\\fs52\\\\b\\\\cf1\\\\qc AWS CLOUD SECURITY ASSESSMENT REPORT\\\\b0\\\\par}\n{\\\\f1\\\\fs22\\\\cf3\\\\qc CIS AWS Foundations Benchmark  |  Confidential\\\\par}\n{\\\\f1\\\\fs22\\\\cf3\\\\qc Generated: ${new Date().toDateString()}\\\\par}\n\\\\par\n{\\\\f1\\\\fs32\\\\b\\\\cf4\\\\qc RISK SCORE: ${score} / 100\\\\b0\\\\par}\n{\\\\f1\\\\fs20\\\\cf3\\\\qc ${parseInt(score) >= 70 ? 'LOW RISK' : parseInt(score) >= 50 ? 'MEDIUM RISK' : 'HIGH RISK'} \\\\par}\n\\\\par\\\\par\n${rtf}\n}`;\n\nreturn [{ json: { report: fullRtf } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        0
+      ],
+      "id": "3a6a3890-3b48-467d-b8dc-fa3f5714ca0a",
+      "name": "Formatting"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Formatting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatting": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6c34d688-08b7-43ef-bfcf-a13e1f72fd81",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "41fe31e1f1602f7a8215f033996e1436dd6e5c45072152cec0f066af89b29439"
+  },
+  "id": "9fnNRTtqM5lX2UT3",
+  "tags": []
+}

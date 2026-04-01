@@ -1,0 +1,638 @@
+{
+  "name": "[PROD] SecurityFlow_Core_Engine_v2",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://s3.{{ $json.aws_region }}.amazonaws.com/securityflow-test-audit?publicAccessBlock ",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "aws",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "bucket",
+              "value": "securityflow-test-audit"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8fb8d09f-9519-45e4-8146-83a7864a4f6b",
+      "name": "AWS_Fetch_S3_Public_Access_Audit",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://iam.amazonaws.com/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "aws",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "Action",
+              "value": "GetAccountSummary"
+            },
+            {
+              "name": "Version",
+              "value": "2010-05-08"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        576
+      ],
+      "id": "976db663-fd0c-4bd7-b931-6f5ae60f0c30",
+      "name": "AWS_Fetch_IAM_Password_Policy",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "additionalFields": {},
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.awsIam",
+      "typeVersion": 1,
+      "position": [
+        224,
+        768
+      ],
+      "id": "f8428210-009f-4003-8e82-4a924e166bfb",
+      "name": "AWS_Fetch_IAM_Security_Audit"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "7987e9fc-a1f0-4bd1-a0f0-c98e8801674f",
+      "name": "XML"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $node[\"AWS_Fetch_IAM_Password_Policy\"].json;\nconst summary = data?.GetAccountSummaryResponse?.GetAccountSummaryResult?.SummaryMap;\n\n// Error Handling: If the API didn't return the SummaryMap\nif (!summary) {\n  return {\n    check_name: \"IAM_PASSWORD_COMPLIANCE\",\n    resource_type: \"IAM\",\n    compliance_status: \"MANUAL_REVIEW\",\n    evidence_summary: \"Error: Could not retrieve Account Summary. API response was malformed or denied.\",\n    aws_account_id: \"154580145304\",\n    raw_data: data\n  };\n}\n\nconst isCompliant = summary.AccountPasswordPresent === 1;\n\nreturn {\n  check_name: \"IAM_PASSWORD_COMPLIANCE\",\n  resource_type: \"IAM\",\n  compliance_status: isCompliant ? \"PASS\" : \"FAIL\",\n  evidence_summary: isCompliant \n    ? \"IAM Password policy is strictly enforced.\" \n    : \"FAIL: No custom IAM password policy found. Default AWS policy is too weak.\",\n  aws_account_id: \"154580145304\",\n  raw_data: summary\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        576
+      ],
+      "id": "4ae2fcaa-573b-4412-87ad-e294083b1034",
+      "name": "IAM",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $node[\"XML\"].json; // Assumes your XML node is named \"XML\"\nconst config = data?.PublicAccessBlockConfiguration;\n\nif (!config) {\n  return {\n    check_name: \"S3_BUCKET_PRIVACY\",\n    resource_type: \"S3\",\n    compliance_status: \"MANUAL_REVIEW\",\n    evidence_summary: \"Could not retrieve S3 Public Access Block settings. Check if bucket exists or permissions.\",\n    aws_account_id: \"154580145304\",\n    raw_data: data\n  };\n}\n\nconst isSecure = config.BlockPublicAcls === 'true' && config.BlockPublicPolicy === 'true';\n\nreturn {\n  check_name: \"S3_BUCKET_PRIVACY\",\n  resource_type: \"S3\",\n  compliance_status: isSecure ? \"PASS\" : \"FAIL\",\n  evidence_summary: isSecure \n    ? \"S3 Public Access is successfully blocked (Encrypted/Private).\" \n    : \"FAIL: S3 Bucket allows public ACLs or Policies. High risk of data leak.\",\n  aws_account_id: \"154580145304\",\n  raw_data: config\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "02b1cb34-479c-4fda-bb08-1ecaac9eafe7",
+      "name": "s3"
+    },
+    {
+      "parameters": {
+        "numberInputs": 6
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        416
+      ],
+      "id": "fc47cca0-7942-4f4a-8e06-4ef8b496c95a",
+      "name": "Merge",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const user = items[0].json;\n\nif (!user || !user.Arn) {\n  return {\n    check_name: \"IAM_USER_INVENTORY\",\n    resource_type: \"IAM\",\n    compliance_status: \"MANUAL_REVIEW\",\n    evidence_summary: \"Failed to retrieve IAM user list.\",\n    aws_account_id: \"154580145304\",\n    raw_data: user\n  };\n}\n\nreturn {\n  check_name: \"IAM_USER_INVENTORY\",\n  resource_type: \"IAM\",\n  compliance_status: \"PASS\",\n  evidence_summary: `Verified active IAM Scanner user: ${user.UserName}.`,\n  aws_account_id: \"154580145304\",\n  raw_data: user\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        768
+      ],
+      "id": "548c9fa9-74b9-4f52-8cea-08b4bb3f9e40",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "tableId": "compliance_evidence",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "check_name",
+              "fieldValue": "={{ $('Merge').item.json.check_name }}"
+            },
+            {
+              "fieldId": "compliance_status",
+              "fieldValue": "={{ $('Merge').item.json.compliance_status }}"
+            },
+            {
+              "fieldId": "aws_account_id",
+              "fieldValue": "={{ $('Merge').item.json.aws_account_id }}"
+            },
+            {
+              "fieldId": "evidence_summary",
+              "fieldValue": "={{ $('Merge').item.json.evidence_summary }}"
+            },
+            {
+              "fieldId": "raw_data",
+              "fieldValue": "={{ $('Merge').item.json.raw_data }}"
+            },
+            {
+              "fieldId": "resource_type",
+              "fieldValue": "={{ $json.resource_type }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        896,
+        480
+      ],
+      "id": "ac117521-6a01-4f94-8672-bf6bb95f7ace",
+      "name": "Create a row"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://ec2.{{ $json.aws_region }}.amazonaws.com/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "aws",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "Action",
+              "value": "DescribeVolumes"
+            },
+            {
+              "name": "Version",
+              "value": "2016-11-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        0,
+        192
+      ],
+      "id": "a96ae682-f77c-4e50-ae0e-eb900758a724",
+      "name": "AWS_Fetch_EC2_Volume_Encryption",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://ec2.{{ $json.aws_region }}.amazonaws.com/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "aws",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "Action",
+              "value": "DescribeFlowLogs"
+            },
+            {
+              "name": "Version",
+              "value": "2016-11-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        0,
+        384
+      ],
+      "id": "1ebeab2f-d325-44e1-8f1c-95ab4a44c69c",
+      "name": "AWS_Fetch_VPC_Flow_Logs",
+      "alwaysOutputData": true,
+      "credentials": {
+        "aws": {
+          "id": "NQSuqZf3Rv6xt3MV",
+          "name": "AWS (IAM) account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://rds.{{ $json.aws_region }}.amazonaws.com/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "aws",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "Action",
+              "value": "DescribeDBInstances"
+            },
+            {
+              "name": "Version",
+              "value": "2014-10-31"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        960
+      ],
+      "id": "b51ab596-7463-4bb3-adad-fb98f9024957",
+      "name": "AWS_Fetch_RDS_Instance_Config1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $node[\"AWS_Fetch_RDS_Instance_Config1\"].json;\nconst instances = data.DescribeDBInstancesResponse.DescribeDBInstancesResult.DBInstances;\n\n// In B2B SaaS, if you have NO database, you technically have nothing to audit. \n// But we mark it as FAIL/Warning to tell the founder they aren't monitoring anything.\nconst hasInstances = instances && instances.length > 0;\n\nreturn {\n  check_name: \"RDS_DATABASE_ENCRYPTION\",\n  resource_type: \"RDS\",\n  compliance_status: hasInstances ? \"PASS\" : \"FAIL\",\n  evidence_summary: hasInstances \n    ? \"RDS instances are verified and encrypted.\" \n    : \"FAIL: No active RDS instances detected for monitoring.\",\n  aws_account_id: \"154580145304\",\n  raw_data: data\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        960
+      ],
+      "id": "c188ba28-450a-4238-ac6f-0e68abaec16c",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $node[\"XML_EC2\"].json; // Name this XML node XML_EC2\nconst volumes = data.DescribeVolumesResponse.volumeSet.item;\nconst list = Array.isArray(volumes) ? volumes : [volumes];\nconst unencrypted = list.filter(v => v.encrypted === 'false');\n\nreturn {\n  check_name: \"EC2_VOLUME_ENCRYPTION\",\n  resource_type: \"EC2\",\n  compliance_status: unencrypted.length === 0 ? \"PASS\" : \"FAIL\",\n  evidence_summary: unencrypted.length === 0 \n    ? \"All EC2 volumes are encrypted.\" \n    : `FAIL: Found ${unencrypted.length} unencrypted volumes.`,\n  aws_account_id: \"154580145304\",\n  raw_data: list\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        192
+      ],
+      "id": "8e165aea-2dc4-42c0-beda-688e247c769e",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $node[\"XML_VPC\"].json; // Name this XML node XML_VPC\nconst logs = data.DescribeFlowLogsResponse.flowLogSet;\n\n// If the flowLogSet is empty, network logging is OFF.\nconst isLogging = Object.keys(logs).length > 0;\n\nreturn {\n  check_name: \"VPC_FLOW_LOGGING\",\n  resource_type: \"VPC\",\n  compliance_status: isLogging ? \"PASS\" : \"FAIL\",\n  evidence_summary: isLogging \n    ? \"VPC network traffic is being logged.\" \n    : \"FAIL: VPC Flow Logs are disabled. No network audit trail exists.\",\n  aws_account_id: \"154580145304\",\n  raw_data: data\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        384
+      ],
+      "id": "6afe7da9-1fe5-4505-a83f-dbb7e4380b0f",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        224,
+        192
+      ],
+      "id": "1206a4b4-cec0-4069-8116-24cd977d0217",
+      "name": "XML_EC2"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        224,
+        384
+      ],
+      "id": "c00242e1-94de-4502-8047-518224744aa0",
+      "name": "XML_VPC"
+    },
+    {
+      "parameters": {
+        "formTitle": "trigger",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "aws_region",
+              "defaultValue": "us-west-2"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        -224,
+        480
+      ],
+      "id": "020a98ab-d357-4c58-ad48-43bf35ba20cf",
+      "name": "Manual_Trigger_Start",
+      "webhookId": "0ee9df6d-adfb-4d4a-9c23-afd2126a1c34"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "AWS_Fetch_IAM_Password_Policy": {
+      "main": [
+        [
+          {
+            "node": "IAM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AWS_Fetch_S3_Public_Access_Audit": {
+      "main": [
+        [
+          {
+            "node": "XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML": {
+      "main": [
+        [
+          {
+            "node": "s3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IAM": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "s3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "AWS_Fetch_IAM_Security_Audit": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AWS_Fetch_RDS_Instance_Config1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AWS_Fetch_EC2_Volume_Encryption": {
+      "main": [
+        [
+          {
+            "node": "XML_EC2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AWS_Fetch_VPC_Flow_Logs": {
+      "main": [
+        [
+          {
+            "node": "XML_VPC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML_EC2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML_VPC": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Manual_Trigger_Start": {
+      "main": [
+        [
+          {
+            "node": "AWS_Fetch_S3_Public_Access_Audit",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AWS_Fetch_EC2_Volume_Encryption",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AWS_Fetch_VPC_Flow_Logs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AWS_Fetch_IAM_Password_Policy",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AWS_Fetch_IAM_Security_Audit",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AWS_Fetch_RDS_Instance_Config1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "88b42ec2-d51d-46cb-a3b2-46180bbf9a4c",
+  "meta": {
+    "instanceId": "41fe31e1f1602f7a8215f033996e1436dd6e5c45072152cec0f066af89b29439"
+  },
+  "id": "tOMhJ8D0rag8LvOq",
+  "tags": []
+}
