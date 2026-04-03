@@ -671,7 +671,7 @@
                 "title_case": false,
                 "track_in_telemetry": false,
                 "type": "str",
-                "value": "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"
+                "value": "API-KEY"
               },
               "base_url": {
                 "_input_type": "MessageTextInput",
